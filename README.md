@@ -4,6 +4,10 @@
 > 单个 Worker 部署即可使用，前端零构建、后端零依赖，全程跑在 Cloudflare 边缘节点。
 
 <p align="center">
+  <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/hltxme/d1-r2-kv-backup-migration-center"><img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare"/></a>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white" alt="Workers"/>
   <img src="https://img.shields.io/badge/D1-Database-3B82F6?logo=cloudflare&logoColor=white" alt="D1"/>
   <img src="https://img.shields.io/badge/R2-Storage-F6821F?logo=cloudflare&logoColor=white" alt="R2"/>
@@ -128,9 +132,45 @@
 
 ## 🚀 快速部署
 
-> 前置要求：Node.js ≥ 18、一个 Cloudflare 账号（免费套餐即可）
+> 前置要求：一个 Cloudflare 账号（免费套餐即可）。命令行方式额外需要 Node.js ≥ 18。
 
-### 1. 克隆仓库
+### 🌐 方式一：浏览器一键部署（推荐 · 无需命令行）
+
+1. 点击上方 **Deploy to Cloudflare** 按钮
+   （或直接打开 <https://deploy.workers.cloudflare.com/?url=https://github.com/hltxme/d1-r2-kv-backup-migration-center>）
+2. 登录 Cloudflare，按提示**授权 GitHub**
+3. Cloudflare 会在你的 GitHub 账号下自动创建仓库副本，并开始构建部署
+   - ✅ **D1 数据库会自动创建并绑定**，不需要手动填 database_id
+   - ✅ 前端静态资源、环境变量都从 `wrangler.jsonc` 自动读取
+4. 部署完成后，进入 **Workers & Pages → 你的 Worker → Settings → Variables and Secrets**
+   添加一条 **Secret** 类型变量 `APP_SECRET`（值随便敲一长串随机字符即可）
+   > 不加也能用（会自动用一个密钥），但加上更安全。
+5. 打开 `https://<你的-worker>.<你的子域>.workers.dev/` → 默认账号 `admin` / `123456`
+
+### 🌐 方式二：Cloudflare 控制台导入 GitHub 仓库（纯浏览器）
+
+如果你不想用 Deploy 按钮（比如想用自己已有的仓库）：
+
+1. 打开 [Cloudflare 控制台](https://dash.cloudflare.com/) → **Workers & Pages** → **Create** → **Import a repository**
+2. 首次使用会提示 **Connect GitHub**，授权后选择 `hltxme/d1-r2-kv-backup-migration-center`
+3. 构建配置（Build configuration）：
+
+   | 项 | 值 |
+   | --- | --- |
+   | Framework preset | `None` / `无` |
+   | Build command | `npm ci` |
+   | Deploy command | `npx wrangler deploy` |
+   | Node 版本 | 默认即可 |
+
+4. 点击 **Deploy**，等待构建完成
+5. 同方式一，到 **Settings → Variables and Secrets** 添加 `APP_SECRET`
+
+> 💡 只要 `wrangler.jsonc` 里的 D1 绑定**没有写 database_id**，控制台部署时就会自动创建 D1 并绑定。
+> 本仓库已经是这种写法，开箱即用。
+
+### 🖥️ 方式三：命令行部署（Wrangler CLI）
+
+#### 1. 克隆仓库
 
 ```bash
 git clone https://github.com/hltxme/d1-r2-kv-backup-migration-center.git
@@ -138,13 +178,17 @@ cd d1-r2-kv-backup-migration-center
 npm install
 ```
 
-### 2. 登录 Cloudflare
+#### 2. 登录 Cloudflare
 
 ```bash
 npx wrangler login
 ```
 
-### 3. 创建 D1 数据库
+#### 3. 创建 D1 数据库（可选）
+
+`wrangler.jsonc` 中的 D1 绑定**没有写 database_id**，因此 `npm run deploy` 时会**自动创建并回填 ID**，通常无需手动操作。
+
+如果你想先手动建库：
 
 ```bash
 npx wrangler d1 create d1-r2-kv-center
@@ -156,12 +200,12 @@ npx wrangler d1 create d1-r2-kv-center
 [[d1_databases]]
 binding = "DB"
 database_name = "d1-r2-kv-center"
-database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"   ← 复制这一串
+database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"   ← 可选：填入 wrangler.jsonc
 ```
 
-把 `database_id` 填入 `wrangler.jsonc` 中的 `REPLACE_WITH_YOUR_D1_DATABASE_ID`。
+填入 `wrangler.jsonc` 的 `d1_databases[0].database_id` 即可使用已有库；不填则自动新建。
 
-### 4. 设置加密密钥（强烈建议）
+#### 4. 设置加密密钥（强烈建议）
 
 ```bash
 npx wrangler secret put APP_SECRET
@@ -177,13 +221,13 @@ npx wrangler secret put APP_SECRET
 npx wrangler secret put ADMIN_PASSWORD    # 默认 123456
 ```
 
-### 5. 部署
+#### 5. 部署
 
 ```bash
 npm run deploy
 ```
 
-### 6. 打开控制台
+#### 6. 打开控制台
 
 访问 `https://<你的-worker>.workers.dev/`
 
@@ -191,7 +235,7 @@ npm run deploy
 - 默认密码：`123456`
 - **首次登录后请立即在「个人资料」中修改用户名与密码**
 
-### 7. 建表（可选）
+#### 7. 建表（可选）
 
 Worker 会在首次请求时**自动建表并创建默认管理员**，通常无需手动执行。
 如果你想手动建表：

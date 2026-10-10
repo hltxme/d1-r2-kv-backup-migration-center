@@ -4,6 +4,10 @@
 > built on **Cloudflare Workers + D1**. Deploy a single Worker and go — zero frontend build, zero backend dependencies.
 
 <p align="center">
+  <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/hltxme/d1-r2-kv-backup-migration-center"><img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare"/></a>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white" alt="Workers"/>
   <img src="https://img.shields.io/badge/D1-Database-3B82F6?logo=cloudflare&logoColor=white" alt="D1"/>
   <img src="https://img.shields.io/badge/R2-Storage-F6821F?logo=cloudflare&logoColor=white" alt="R2"/>
@@ -59,7 +63,31 @@ Target resources are **auto-created** when missing (database / bucket / namespac
 
 ## 🚀 Quick Start
 
-> Requirements: Node.js ≥ 18 and a Cloudflare account (free plan works).
+> Requirements: a Cloudflare account (free plan works). The CLI path additionally needs Node.js ≥ 18.
+
+### 🌐 Option 1 — One-click browser deploy (recommended, no terminal)
+
+1. Click the **Deploy to Cloudflare** button above
+   (or open <https://deploy.workers.cloudflare.com/?url=https://github.com/hltxme/d1-r2-kv-backup-migration-center>)
+2. Sign in to Cloudflare and **authorize GitHub** when prompted
+3. Cloudflare creates a copy of the repo in your GitHub account and builds/deploys it
+   - ✅ The **D1 database is created and bound automatically** — no need to fill in a database id
+   - ✅ Static assets and env vars are read from `wrangler.jsonc`
+4. After deployment: **Workers & Pages → your Worker → Settings → Variables and Secrets**
+   → add a **Secret** named `APP_SECRET` (any long random string)
+5. Open `https://<your-worker>.<your-subdomain>.workers.dev/` → `admin` / `123456`
+
+### 🌐 Option 2 — Import the GitHub repo in the Cloudflare dashboard
+
+1. [Cloudflare dashboard](https://dash.cloudflare.com/) → **Workers & Pages** → **Create** → **Import a repository**
+2. Connect GitHub and pick `hltxme/d1-r2-kv-backup-migration-center`
+3. Build configuration: Framework preset `None`, Build command `npm ci`, Deploy command `npx wrangler deploy`
+4. Click **Deploy**, then add the `APP_SECRET` secret as above
+
+> 💡 Because the D1 binding in `wrangler.jsonc` has **no `database_id`**, the dashboard
+> automatically provisions the database for you.
+
+### 🖥️ Option 3 — Command line (Wrangler CLI)
 
 ```bash
 # 1. Clone & install
@@ -70,9 +98,9 @@ npm install
 # 2. Login to Cloudflare
 npx wrangler login
 
-# 3. Create the D1 database
+# 3. Create the D1 database (optional — auto-created on deploy)
 npx wrangler d1 create d1-r2-kv-center
-# → copy the database_id into wrangler.jsonc
+# → optionally copy the database_id into wrangler.jsonc
 
 # 4. (Recommended) set the encryption secret
 npx wrangler secret put APP_SECRET       # e.g. openssl rand -hex 32

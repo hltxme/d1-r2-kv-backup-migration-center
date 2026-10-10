@@ -18,14 +18,14 @@
   },
 
   // ── D1 绑定：应用自身的元数据库（用户 / CF账号 / 资源清单 / 任务）──────
-  // 首次部署前请执行：
-  //   npx wrangler d1 create d1-r2-kv-center
-  // 并把返回的 database_id 填到下面
+  // 这里不写 database_id，Wrangler 会**自动创建**同名 D1 并回填 ID：
+  //   · 命令行：npm run deploy 时自动创建
+  //   · 浏览器：Cloudflare 控制台 / Deploy 按钮部署时同样自动创建
+  // 若你已有数据库，也可以手动填入 database_id
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "d1-r2-kv-center",
-      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+      "database_name": "d1-r2-kv-center"
     }
   ],
 
