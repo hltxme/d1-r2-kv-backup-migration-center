@@ -1,0 +1,50 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "d1-r2-kv-backup-migration-center",
+  "main": "src/index.js",
+  "compatibility_date": "2025-09-01",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+
+  // ── 静态资源：public/ 目录下的前端页面 ────────────────────────────────
+  // 除 /api/* 与少量自定义路由外，全部由静态资源直接返回（免费、走 CDN）
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "html_handling": "none",
+    "run_worker_first": ["/", "/api/*", "/login", "/app", "/health"]
+  },
+
+  // ── D1 绑定：应用自身的元数据库（用户 / CF账号 / 资源清单 / 任务）──────
+  // 首次部署前请执行：
+  //   npx wrangler d1 create d1-r2-kv-center
+  // 并把返回的 database_id 填到下面
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "d1-r2-kv-center",
+      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+    }
+  ],
+
+  // ── 可公开的运行参数（不含任何密钥）──────────────────────────────────
+  "vars": {
+    "APP_NAME": "D1 + R2 + KV 数据备份与跨账号迁移中心",
+    "APP_SHORT_NAME": "Backup Center",
+    "APP_VERSION": "1.0.0",
+    "APP_DEFAULT_LOCALE": "zh-CN",
+    "APP_DEFAULT_THEME": "light",
+    "APP_DEFAULT_ACCENT": "indigo",
+    "SESSION_TTL_DAYS": "7",
+    "CAPTCHA_TTL_SECONDS": "300",
+    "LOGIN_MAX_ATTEMPTS": "5",
+    "LOGIN_LOCK_MINUTES": "10",
+    "PBKDF2_ITERATIONS": "120000"
+  }
+
+  // ── 密钥请用 wrangler secret 设置，不要写进本文件 ────────────────────
+  //   npx wrangler secret put APP_SECRET        # 用于加密存储 CF API Token
+  //   npx wrangler secret put ADMIN_PASSWORD    # 可选：覆盖默认初始密码
+}

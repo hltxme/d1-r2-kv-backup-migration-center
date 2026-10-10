@@ -1,0 +1,253 @@
+/* ==========================================================================
+   Design Tokens · 设计令牌
+   --------------------------------------------------------------------------
+   主题扩展方式：
+     1. 在本文件新增一个 [data-theme="your-theme"] 块，覆盖下面的 CSS 变量
+     2. 在 public/js/theme.js 的 THEMES 注册表里加一条（id 必须一致）
+   强调色扩展：新增 [data-accent="your-accent"] 块即可
+   ========================================================================== */
+
+:root {
+  /* ── 品牌 / 强调色（默认 indigo，可被 [data-accent] 覆盖）── */
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --primary-contrast: #ffffff;
+  --primary-gradient: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  --primary-glow: 0 6px 20px -6px rgba(79, 70, 229, 0.45);
+
+  /* ── 语义色 ── */
+  --success: #10b981;
+  --success-soft: #ecfdf5;
+  --warning: #f59e0b;
+  --warning-soft: #fffbeb;
+  --danger: #ef4444;
+  --danger-soft: #fef2f2;
+  --danger-hover: #dc2626;
+  --info: #0ea5e9;
+  --info-soft: #f0f9ff;
+  --muted: #64748b;
+
+  /* ── 字体 ── */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  /* ── 圆角 ── */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --radius-full: 999px;
+
+  /* ── 间距 ── */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+
+  /* ── 尺寸 ── */
+  --sidebar-w: 246px;
+  --sidebar-w-collapsed: 74px;
+  --topbar-h: 62px;
+
+  /* ── 动画 ── */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --fast: 140ms var(--ease);
+  --normal: 220ms var(--ease);
+
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 500;
+  --z-toast: 900;
+}
+
+/* ==========================================================================
+   浅色主题（默认）
+   ========================================================================== */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f5f7fb;
+  --bg-pattern: radial-gradient(circle at 12% 12%, rgba(99, 102, 241, 0.07), transparent 42%),
+    radial-gradient(circle at 88% 4%, rgba(14, 165, 233, 0.07), transparent 40%);
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-3: #f1f5f9;
+  --surface-hover: #f6f8fc;
+  --surface-inverse: #0f172a;
+
+  --border: #e6eaf2;
+  --border-strong: #d3dae6;
+  --border-focus: #c7d2fe;
+
+  --text: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #8494a8;
+  --text-inverse: #ffffff;
+
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 6px 18px -6px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.05);
+  --shadow-lg: 0 18px 42px -14px rgba(15, 23, 42, 0.22), 0 4px 12px rgba(15, 23, 42, 0.06);
+
+  --sidebar-bg: #ffffff;
+  --sidebar-border: #eaeef5;
+  --sidebar-text: #475569;
+  --sidebar-text-active: var(--primary);
+  --sidebar-item-hover: var(--primary-soft);
+  --sidebar-item-active: var(--primary-soft);
+
+  --table-stripe: #fafbfd;
+  --table-header: #f8fafc;
+  --scrollbar: #d5dce8;
+}
+
+/* ==========================================================================
+   深色主题
+   ========================================================================== */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #0b1120;
+  --bg-pattern: radial-gradient(circle at 14% 10%, rgba(99, 102, 241, 0.16), transparent 44%),
+    radial-gradient(circle at 86% 2%, rgba(14, 165, 233, 0.12), transparent 42%);
+  --surface: #131c31;
+  --surface-2: #18233c;
+  --surface-3: #1f2c49;
+  --surface-hover: #202c47;
+  --surface-inverse: #f8fafc;
+
+  --border: #26324d;
+  --border-strong: #35436180;
+  --border-focus: #4f5bd5;
+
+  --text: #e9eefb;
+  --text-secondary: #a8b6cf;
+  --text-muted: #74849f;
+  --text-inverse: #0f172a;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 10px 26px -10px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 26px 56px -18px rgba(0, 0, 0, 0.7), 0 6px 16px rgba(0, 0, 0, 0.35);
+
+  --sidebar-bg: #0f1729;
+  --sidebar-border: #212c46;
+  --sidebar-text: #9db0cd;
+  --sidebar-text-active: #c7d2fe;
+  --sidebar-item-hover: rgba(99, 102, 241, 0.18);
+  --sidebar-item-active: rgba(99, 102, 241, 0.22);
+
+  --table-stripe: #16203a;
+  --table-header: #18223c;
+  --scrollbar: #2c3a58;
+
+  --success-soft: rgba(16, 185, 129, 0.16);
+  --warning-soft: rgba(245, 158, 11, 0.16);
+  --danger-soft: rgba(239, 68, 68, 0.16);
+  --info-soft: rgba(14, 165, 233, 0.16);
+}
+
+/* ==========================================================================
+   极光主题（示例：证明「可多主题扩展」）
+   ========================================================================== */
+[data-theme="aurora"] {
+  color-scheme: light;
+
+  --bg: #f2f1fb;
+  --bg-pattern: radial-gradient(circle at 8% 0%, rgba(168, 85, 247, 0.18), transparent 46%),
+    radial-gradient(circle at 92% 8%, rgba(236, 72, 153, 0.16), transparent 42%),
+    radial-gradient(circle at 50% 100%, rgba(14, 165, 233, 0.14), transparent 50%);
+  --surface: rgba(255, 255, 255, 0.82);
+  --surface-2: rgba(255, 255, 255, 0.6);
+  --surface-3: rgba(255, 255, 255, 0.45);
+  --surface-hover: rgba(255, 255, 255, 0.92);
+  --surface-inverse: #241b3a;
+
+  --border: rgba(124, 108, 190, 0.22);
+  --border-strong: rgba(124, 108, 190, 0.38);
+  --border-focus: #a78bfa;
+
+  --text: #2b2144;
+  --text-secondary: #5b4d7d;
+  --text-muted: #8b7fb0;
+  --text-inverse: #ffffff;
+
+  --shadow-xs: 0 1px 2px rgba(90, 60, 160, 0.08);
+  --shadow-sm: 0 2px 10px -2px rgba(90, 60, 160, 0.14);
+  --shadow-md: 0 12px 28px -12px rgba(90, 60, 160, 0.28);
+  --shadow-lg: 0 26px 52px -18px rgba(90, 60, 160, 0.36);
+
+  --sidebar-bg: rgba(255, 255, 255, 0.62);
+  --sidebar-border: rgba(124, 108, 190, 0.2);
+  --sidebar-text: #5b4d7d;
+  --sidebar-text-active: #7c3aed;
+  --sidebar-item-hover: rgba(167, 139, 250, 0.18);
+  --sidebar-item-active: rgba(167, 139, 250, 0.24);
+
+  --table-stripe: rgba(255, 255, 255, 0.4);
+  --table-header: rgba(255, 255, 255, 0.5);
+  --scrollbar: #cdc2ea;
+
+  --primary: #7c3aed;
+  --primary-hover: #6d28d9;
+  --primary-gradient: linear-gradient(135deg, #a855f7 0%, #7c3aed 60%, #6366f1 100%);
+  --primary-glow: 0 8px 22px -8px rgba(124, 58, 237, 0.5);
+}
+
+/* ==========================================================================
+   强调色（Accent）
+   ========================================================================== */
+[data-accent="indigo"] {
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --primary-gradient: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+}
+[data-accent="blue"] {
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-gradient: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+}
+[data-accent="cyan"] {
+  --primary: #0891b2;
+  --primary-hover: #0e7490;
+  --primary-gradient: linear-gradient(135deg, #22d3ee 0%, #0891b2 100%);
+}
+[data-accent="emerald"] {
+  --primary: #059669;
+  --primary-hover: #047857;
+  --primary-gradient: linear-gradient(135deg, #34d399 0%, #059669 100%);
+}
+[data-accent="amber"] {
+  --primary: #d97706;
+  --primary-hover: #b45309;
+  --primary-gradient: linear-gradient(135deg, #fbbf24 0%, #d97706 100%);
+}
+[data-accent="rose"] {
+  --primary: #e11d48;
+  --primary-hover: #be123c;
+  --primary-gradient: linear-gradient(135deg, #fb7185 0%, #e11d48 100%);
+}
+[data-accent="violet"] {
+  --primary: #7c3aed;
+  --primary-hover: #6d28d9;
+  --primary-gradient: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
+}
+[data-accent="slate"] {
+  --primary: #475569;
+  --primary-hover: #334155;
+  --primary-gradient: linear-gradient(135deg, #64748b 0%, #475569 100%);
+}
+
+/* 强调色软底色统一由主色派生 */
+:root {
+  --primary-soft: color-mix(in srgb, var(--primary) 12%, transparent);
+  --primary-soft-hover: color-mix(in srgb, var(--primary) 20%, transparent);
+  --primary-glow: 0 6px 20px -6px color-mix(in srgb, var(--primary) 55%, transparent);
+}

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light" data-accent="indigo">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="description" content="Cloudflare D1 + R2 + KV 数据备份、恢复与跨账号迁移中心" />
+  <title>控制台 · D1 + R2 + KV 备份迁移中心</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/css/tokens.css" />
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/app.css" />
+</head>
+<body>
+  <div class="app-shell" id="shell">
+
+    <!-- ══════════ 侧边栏 ══════════ -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="logo">⚡</div>
+        <div class="brand-text">
+          <div class="brand-name" id="brandName">备份迁移中心</div>
+          <div class="brand-ver" id="brandVer">v1.0.0 · Cloudflare</div>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav" id="sidebarNav"></nav>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-user" id="sidebarUser"></div>
+      </div>
+    </aside>
+
+    <!-- ══════════ 主区域 ══════════ -->
+    <div class="main-col">
+      <header class="topbar">
+        <button class="btn-icon" id="collapseBtn" title="折叠菜单">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+        </button>
+        <div>
+          <div class="page-title" id="pageTitle">仪表盘</div>
+          <div class="page-desc" id="pageDesc"></div>
+        </div>
+        <div class="spacer"></div>
+        <div class="actions" id="topbarActions"></div>
+      </header>
+
+      <main class="content" id="content">
+        <div class="empty" style="padding:120px 20px">
+          <div class="spinner"></div>
+          <div class="empty-title" id="loadingText">加载中…</div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

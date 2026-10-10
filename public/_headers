@@ -1,0 +1,11 @@
+# Cloudflare Static Assets 自定义响应头
+# 文档：https://developers.cloudflare.com/pages/configuration/headers/
+# 说明：本文件只作用于静态资源；/api/* 的响应头由 Worker 内部设置。
+# 缓存保持默认（ETag + must-revalidate），便于升级后立即生效。
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: same-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=()
+  Cross-Origin-Opener-Policy: same-origin
