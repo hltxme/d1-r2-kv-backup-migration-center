@@ -147,25 +147,145 @@
    > 不加也能用（会自动用一个密钥），但加上更安全。
 5. 打开 `https://<你的-worker>.<你的子域>.workers.dev/` → 默认账号 `admin` / `123456`
 
-### 🌐 方式二：Cloudflare 控制台导入 GitHub 仓库（纯浏览器）
+### 🌐 方式二：Cloudflare 控制台导入 GitHub 仓库（纯浏览器 · 详细步骤）
 
-如果你不想用 Deploy 按钮（比如想用自己已有的仓库）：
+适合想用自己已有的 GitHub 仓库、或不想点 Deploy 按钮的场景。**全程只需浏览器，不装任何软件。**
 
-1. 打开 [Cloudflare 控制台](https://dash.cloudflare.com/) → **Workers & Pages** → **Create** → **Import a repository**
-2. 首次使用会提示 **Connect GitHub**，授权后选择 `hltxme/d1-r2-kv-backup-migration-center`
-3. 构建配置（Build configuration）：
+#### 前置准备
 
-   | 项 | 值 |
-   | --- | --- |
-   | Framework preset | `None` / `无` |
-   | Build command | `npm ci` |
-   | Deploy command | `npx wrangler deploy` |
-   | Node 版本 | 默认即可 |
+- 一个 Cloudflare 账号（免费套餐即可）
+- 一个 GitHub 账号，并且能在 GitHub 上看到本仓库
+- ❌ 不需要安装 Node.js / Wrangler（构建在 Cloudflare 云端完成）
 
-4. 点击 **Deploy**，等待构建完成
-5. 同方式一，到 **Settings → Variables and Secrets** 添加 `APP_SECRET`
+> 🌐 Cloudflare 控制台默认是英文界面，下面的步骤**中英文名称都给了**，对照着找即可。
+> 你也可以在控制台右上角头像里把语言切成简体中文。
 
-> 💡 只要 `wrangler.jsonc` 里的 D1 绑定**没有写 database_id**，控制台部署时就会自动创建 D1 并绑定。
+---
+
+#### 第 1 步 · 进入创建页面
+
+1. 打开 [Cloudflare 控制台](https://dash.cloudflare.com/) 并登录
+2. 左侧菜单点 **Workers & Pages**（中文：**Workers 和 Pages** / **Workers与 Pages**）
+3. 点 **Create application**（中文：**创建应用程序**）
+4. 进入 **Workers** 标签页（有的界面直接叫 **Workers** / **Pages** 两块，选 Workers）
+5. 选择 **Import a repository**（中文：**导入仓库**）
+   - 如果看到的是 **Connect to Git** / **从 Git 连接**，也是同一个入口
+   - 如果只看到 **Start with Hello World** / **Start with an example**，说明还在上一层，再点一次 **Create application**
+
+---
+
+#### 第 2 步 · 连接 GitHub
+
+1. 首次会显示 **Connect GitHub**（中文：**连接 GitHub**）按钮 → 点击
+2. 跳转到 GitHub 授权页：
+   - 选择你的 GitHub 账号
+   - **All repositories**（全部仓库） 或 **Only select repositories**（仅选定的仓库）
+     → 若选后者，请在下拉里勾选 `hltxme/d1-r2-kv-backup-migration-center`
+   - 点 **Authorize Cloudflare**（中文：**授权 Cloudflare**）
+3. 回到 Cloudflare，在 **Select a repository**（选择仓库）下拉框里选
+   `hltxme/d1-r2-kv-backup-migration-center`
+   - 找不到就点旁边的 **Refresh**（刷新）
+   - 仍然没有 → 检查第 2 步的授权范围是否包含该仓库
+
+---
+
+#### 第 3 步 · 填写构建配置（Build configuration）
+
+在 **Set up builds and deployments**（设置构建和部署）/ **Build configuration**（构建配置）区域填写：
+
+| 中文名称 | English 名称 | 填什么 |
+| --- | --- | --- |
+| 项目名称 | **Project name** | `d1-r2-kv-backup-migration-center`（可自定义，会成为 workers.dev 子域名） |
+| 生产分支 | **Production branch** | `main` |
+| 框架预设 | **Framework preset** | `None` / `无` |
+| 构建命令 | **Build command** | `npm ci` |
+| 构建输出目录 | **Build output directory** | **留空**（本项目不需要构建产物） |
+| 部署命令 | **Deploy command** | `npx wrangler deploy` |
+| 根目录 | **Root directory** | `/` 或留空 |
+| Node 版本 | **Node version** | **留空**，用默认即可 |
+| 环境变量 | **Environment variables** | **先不填**，密钥在部署后加更安全 |
+
+**界面差异对照（不同版本控制台叫法不一样）：**
+
+| 你可能看到的 | 怎么处理 |
+| --- | --- |
+| 只有 **Build command**，没有 Deploy command | Build command 填 `npm ci && npx wrangler deploy` |
+| 字段叫 **Build & deployment** 分组 | 展开该分组，字段含义相同 |
+| 只有 **Build output directory**、像 Pages 老界面 | 回上一步重新选 **Workers** 标签页 → **Import a repository**，别用 Pages 入口 |
+| 出现 **Deploy hooks** / **Account and framework preset** | 都保持默认，不用改 |
+| 有 **Node 版本 / Node.js version** 下拉 | 选 `20` 或 `22`，不选也行 |
+
+---
+
+#### 第 4 步 · 开始部署
+
+1. 点 **Save and Deploy**（中文：**保存并部署**）或 **Deploy**（**部署**）
+2. 进入构建日志页（**Build logs** / **构建日志**），应该能看到类似：
+
+   ```text
+   Running build  →  npm ci              # 安装依赖（只需 wrangler）
+   Deploying      →  npx wrangler deploy # 上传 Worker + public/ 静态资源
+   ✅ Deployment complete
+   ```
+
+3. 首次构建约 **1–3 分钟**
+4. 构建过程中会**自动创建 D1 数据库**并绑定（日志里能看到 `d1-r2-kv-center`）
+5. 看到 **Success** / **Deployment complete** / **已部署** 即成功
+
+> ⚠️ 如果构建失败，先看日志最后一行的报错，对照文末「常见问题」表格排查。
+
+---
+
+#### 第 5 步 · 添加密钥（可选但强烈建议）
+
+1. 进入你的 Worker → **Settings**（中文：**设置**）→ **Variables and Secrets**（**变量和密钥**）
+2. 点 **Add**（**添加**）：
+
+   | 字段 | English | 填什么 |
+   | --- | --- | --- |
+   | 类型 | **Type** | 选 **Secret**（**密钥**）—— 不是 Text/文本 |
+   | 变量名 | **Variable name** | `APP_SECRET` |
+   | 值 | **Value** | 一长串随机字符（32 位以上，可随便敲） |
+
+3. 点 **Deploy**（**部署**）/ **Save**（**保存**），会触发一次重新部署让密钥生效
+4. 可选：用同样方法再加一个 `ADMIN_PASSWORD`，值填你想要的初始管理员密码
+   （只在数据库里还没有用户时生效）
+
+---
+
+#### 第 6 步 · 访问并验证
+
+1. 在 Worker 页面 → **Settings**（**设置**）→ **Domains & Routing**（**域名和路由**）
+   → 找到形如 `https://<项目名>.<你的子域>.workers.dev` 的地址
+2. 打开它 → 应该看到**登录页**（左侧品牌插画 + 右侧登录卡片，右上角有主题/语言切换）
+3. 用 `admin` / `123456` 登录（若设置了 `ADMIN_PASSWORD` 则用你填的密码）
+4. 登录成功看到左侧菜单 = 部署成功 ✅
+5. **立刻到「个人资料」修改用户名和密码**
+
+---
+
+#### 第 7 步 · 以后怎么更新
+
+- 直接在 **GitHub 网页**上编辑文件 → **Commit changes**（提交更改）
+- Cloudflare 的 Workers Builds 会**自动检测新提交并重新部署**
+- ❌ 不需要再走导入流程，也不需要手动点部署
+
+---
+
+#### 方式二常见问题速查
+
+| 现象 | 原因与解决办法 |
+| --- | --- |
+| 仓库下拉框找不到本仓库 | GitHub 授权时选了 **Only select repositories** 但没勾它 → 去 GitHub **Settings → Applications → Configure** 把仓库加进授权范围，再回来点 Refresh |
+| 构建报 `wrangler: command not found` | Deploy command 写错，必须是 `npx wrangler deploy` |
+| 构建报 D1 / binding 相关错误 | 说明 `wrangler.jsonc` 被改过加了无效的 `database_id` → 把 `database_id` 那行删掉再部署 |
+| 部署成功但打开 404 | 等 30 秒刷新；确认访问的是 `*.workers.dev` 地址而不是构建日志页 |
+| 页面白屏 / 样式加载不出 | 先访问 `/health`，若返回 JSON 说明服务正常 → 强制刷新（Ctrl+F5）清缓存 |
+| 登录提示验证码错误 | 点验证码图片刷新后重试；务必用 **https** 访问（Secure Cookie 限制） |
+| 构建一直排队不开始 | 免费套餐构建并发有限，等几分钟即可 |
+| 想改 workers.dev 子域名 | Worker 页 → **Settings** → **Domains & Routing** → **Change**（**更改**） |
+
+> 💡 只要 `wrangler.jsonc` 里的 D1 绑定**没有写 `database_id`**，控制台部署时就会自动创建 D1 并绑定。
 > 本仓库已经是这种写法，开箱即用。
 
 ### 🖥️ 方式三：命令行部署（Wrangler CLI）

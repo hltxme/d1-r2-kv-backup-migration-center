@@ -77,12 +77,109 @@ Target resources are **auto-created** when missing (database / bucket / namespac
    → add a **Secret** named `APP_SECRET` (any long random string)
 5. Open `https://<your-worker>.<your-subdomain>.workers.dev/` → `admin` / `123456`
 
-### 🌐 Option 2 — Import the GitHub repo in the Cloudflare dashboard
+### 🌐 Option 2 — Import the GitHub repo in the Cloudflare dashboard (fully in-browser)
 
-1. [Cloudflare dashboard](https://dash.cloudflare.com/) → **Workers & Pages** → **Create** → **Import a repository**
-2. Connect GitHub and pick `hltxme/d1-r2-kv-backup-migration-center`
-3. Build configuration: Framework preset `None`, Build command `npm ci`, Deploy command `npx wrangler deploy`
-4. Click **Deploy**, then add the `APP_SECRET` secret as above
+Use this if you prefer your own GitHub repository instead of the Deploy button. **Browser only — nothing to install.**
+
+**Prerequisites**
+
+- A Cloudflare account (free plan works) and a GitHub account with access to this repo
+- ❌ No Node.js / Wrangler needed — the build runs on Cloudflare's side
+
+---
+
+**Step 1 · Start the import**
+
+1. Open the [Cloudflare dashboard](https://dash.cloudflare.com/) and sign in
+2. Left sidebar → **Workers & Pages**
+3. Click **Create application**
+4. Open the **Workers** tab
+5. Choose **Import a repository** (a.k.a. **Connect to Git**)
+   - If you only see *Start with Hello World*, go back one step and click **Create application** again
+
+---
+
+**Step 2 · Connect GitHub**
+
+1. Click **Connect GitHub**
+2. On GitHub's authorize page: pick your account, choose **All repositories** or
+   **Only select repositories** (then tick `hltxme/d1-r2-kv-backup-migration-center`),
+   and click **Authorize Cloudflare**
+3. Back in Cloudflare, select `hltxme/d1-r2-kv-backup-migration-center` in
+   **Select a repository** (click **Refresh** if it is missing)
+
+---
+
+**Step 3 · Build configuration**
+
+In **Set up builds and deployments** / **Build configuration**, fill in:
+
+| Field (English) | 中文 | Value |
+| --- | --- | --- |
+| **Project name** | 项目名称 | `d1-r2-kv-backup-migration-center` (becomes the workers.dev subdomain) |
+| **Production branch** | 生产分支 | `main` |
+| **Framework preset** | 框架预设 | `None` |
+| **Build command** | 构建命令 | `npm ci` |
+| **Build output directory** | 构建输出目录 | *(leave empty)* |
+| **Deploy command** | 部署命令 | `npx wrangler deploy` |
+| **Root directory** | 根目录 | `/` or empty |
+| **Node version** | Node 版本 | *(leave empty)* |
+| **Environment variables** | 环境变量 | *(leave empty — add secrets after deploy)* |
+
+**UI variations:**
+
+| If you see… | Do this |
+| --- | --- |
+| Only **Build command**, no Deploy command | Set Build command to `npm ci && npx wrangler deploy` |
+| A **Build & deployment** group | Expand it — the fields are the same |
+| Only **Build output directory** (old Pages UI) | Go back and use the **Workers** tab → **Import a repository**, not the Pages flow |
+| **Node.js version** dropdown | Pick `20` or `22`, or leave the default |
+
+---
+
+**Step 4 · Deploy**
+
+1. Click **Save and Deploy** (or **Deploy**)
+2. Watch the **Build logs** — you should see `npm ci`, then `npx wrangler deploy`, then `✅ Deployment complete`
+3. The first build takes about **1–3 minutes** and **creates the D1 database automatically**
+
+---
+
+**Step 5 · Add the secret (recommended)**
+
+1. Your Worker → **Settings** → **Variables and Secrets** → **Add**
+2. **Type** = `Secret`, **Variable name** = `APP_SECRET`, **Value** = any long random string
+3. Click **Deploy** / **Save** so the secret takes effect
+4. Optional: add `ADMIN_PASSWORD` to choose the initial admin password
+
+---
+
+**Step 6 · Open and verify**
+
+1. Worker → **Settings** → **Domains & Routing** → copy the `https://<project>.<subdomain>.workers.dev` URL
+2. You should see the login page → sign in with `admin` / `123456`
+3. **Change the username and password right away** in **Profile**
+
+---
+
+**Step 7 · Updating later**
+
+Edit files directly on GitHub → **Commit changes**. Cloudflare detects the new commit
+and redeploys automatically — no need to re-import anything.
+
+---
+
+**Troubleshooting**
+
+| Symptom | Fix |
+| --- | --- |
+| Repo missing from the dropdown | GitHub → **Settings → Applications → Configure** and add the repo to the granted scope, then hit **Refresh** |
+| `wrangler: command not found` | Deploy command must be `npx wrangler deploy` |
+| D1 / binding error in the build | An invalid `database_id` was added to `wrangler.jsonc` — remove that line |
+| 404 after a successful deploy | Wait ~30 s and refresh; make sure you open the `*.workers.dev` URL |
+| Blank page / missing styles | Visit `/health`; if it returns JSON the app is fine — hard-refresh (Ctrl+F5) |
+| “Captcha incorrect” on login | Click the captcha image to refresh; make sure you use **https** |
+| Build stuck in queue | Free plan build concurrency is limited — wait a few minutes |
 
 > 💡 Because the D1 binding in `wrangler.jsonc` has **no `database_id`**, the dashboard
 > automatically provisions the database for you.
