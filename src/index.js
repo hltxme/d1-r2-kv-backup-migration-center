@@ -46,7 +46,21 @@ export default {
       try {
         await ensureBootstrap(env.DB, env);
       } catch (e) {
+        // ⚠️ 不要静默吞掉 bootstrap 异常：否则会出现「表都在、但 users 为空」
+        //    这种极难排查的现象（现象上只表现为登录提示“用户名或密码错误”）。
+        //    宁可返回一个明确的 500，也不要让半初始化的数据库伪装成正常。
         console.error('[bootstrap] 初始化失败', e);
+        return json(
+          {
+            success: false,
+            code: 'ERR_BOOTSTRAP',
+            message:
+              `数据库初始化失败：${e?.message || e}。` +
+              '请检查 D1 绑定是否正常、是否超出 Workers CPU 限额' +
+              '（可在 Workers Logs 中搜索 [bootstrap] 查看详情）。',
+          },
+          500,
+        );
       }
       return router.dispatch(req, env, ctx);
     }

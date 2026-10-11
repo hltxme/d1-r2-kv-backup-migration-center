@@ -41,7 +41,13 @@
     "CAPTCHA_TTL_SECONDS": "300",
     "LOGIN_MAX_ATTEMPTS": "5",
     "LOGIN_LOCK_MINUTES": "10",
-    "PBKDF2_ITERATIONS": "120000"
+
+    // ⚠️ PBKDF2 迭代次数直接决定每次哈希的 CPU 耗时，请勿随意调高：
+    //   120000 次 ≈ 19ms CPU，会超过 Workers 免费版「每请求 10ms」的 CPU 上限，
+    //   导致 bootstrap 创建默认管理员 / 修改密码 静默失败（Error 1102）。
+    //   10000 次 ≈ 1.6ms，留有安全余量。
+    //   若已升级 Workers Paid（CPU 上限 30s），可调回 120000 增强强度。
+    "PBKDF2_ITERATIONS": "10000"
   }
 
   // ── 密钥请用 wrangler secret 设置，不要写进本文件 ────────────────────

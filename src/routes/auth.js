@@ -5,7 +5,7 @@ import {
   ok, err, readJson, getClientIp, requireString, optionalString,
   setCookie, clearCookie, parseCookies,
 } from '../lib/http.js';
-import { hashPassword, verifyPassword, passwordIterations, sha256Base64 } from '../lib/crypto.js';
+import { hashPassword, verifyPassword, sha256Base64 } from '../lib/crypto.js';
 import { one, run, getAppSecret } from '../lib/db.js';
 import {
   createSession, destroySession, getUserFromRequest, requireUser,
@@ -187,7 +187,10 @@ export function registerAuthRoutes(r) {
     const okOld = await verifyPassword(oldPassword, me.password_hash);
     if (!okOld) throw err.badRequest('当前密码不正确');
 
-    const iterations = Math.max(120000, passwordIterations(me.password_hash));
+    // ⚠️ 迭代次数只应由 PBKDF2_ITERATIONS 控制，不要写死下限（如 Math.max(120000, ...)）：
+    //    否则在 Workers 免费版（每请求 10ms CPU）上，改密码会因 ~19ms 的 PBKDF2
+    //    触发 Error 1102，表现成“点保存后无反应 / 改密码静默失败”。
+    const iterations = parseInt(env.PBKDF2_ITERATIONS || '120000', 10);
     const hash = await hashPassword(newPassword, iterations);
     await run(
       db,

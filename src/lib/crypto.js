@@ -100,8 +100,13 @@ async function pbkdf2(password, saltBytes, iterations, length = 32) {
   return new Uint8Array(bits);
 }
 
-/** 生成密码哈希串 */
-export async function hashPassword(password, iterations = 120000) {
+/**
+ * 生成密码哈希串。
+ * ⚠️ 默认值请保持在 Workers 免费版 CPU 上限之内（每请求 10ms）：
+ *    120000 次 ≈ 19ms 会触发 Error 1102；10000 次 ≈ 1.6ms 安全。
+ *    生产中请显式传入 env.PBKDF2_ITERATIONS，不要依赖这个默认值。
+ */
+export async function hashPassword(password, iterations = 10000) {
   const salt = randomBytes(16);
   const hash = await pbkdf2(password, salt, iterations);
   return `pbkdf2$${iterations}$${bytesToBase64(salt)}$${bytesToBase64(hash)}`;
@@ -135,13 +140,26 @@ export function passwordIterations(stored) {
 
 const ENC_SALT = enc.encode('d1-r2-kv-backup-migration-center::aes-gcm::v1');
 
+/**
+ * ⚠️ 派生 AES-GCM 密钥的 PBKDF2 迭代次数。
+ *
+ * 这里必须配合 Cloudflare Workers 的 CPU 上限来取值：
+ *   60000 次 ≈ 9.4ms CPU，紧贴免费版「每请求 10ms」的上限，
+ *   添加 CF 账号（加密 API Token）时极易触发 Error 1102「Worker exceeded resource limits」。
+ *   8000 次 ≈ 1.3ms，安全。
+ *
+ * 注意：修改本值会使旧的 v1.* 密文无法解密（CF API Token 等），
+ *       迁移前请先在旧版本上解密备份，或重新录入账号。
+ */
+const KEY_DERIVE_ITERATIONS = 8000;
+
 let cachedKey = null;
 
 async function deriveKey(secret) {
   if (cachedKey && cachedKey.secret === secret) return cachedKey.key;
   const material = await crypto.subtle.importKey('raw', enc.encode(secret), 'PBKDF2', false, ['deriveKey']);
   const key = await crypto.subtle.deriveKey(
-    { name: 'PBKDF2', hash: 'SHA-256', salt: ENC_SALT, iterations: 60000 },
+    { name: 'PBKDF2', hash: 'SHA-256', salt: ENC_SALT, iterations: KEY_DERIVE_ITERATIONS },
     material,
     { name: 'AES-GCM', length: 256 },
     false,

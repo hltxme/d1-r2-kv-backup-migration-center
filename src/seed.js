@@ -1,8 +1,10 @@
 /**
  * 首次运行自动初始化：建表 + 创建默认管理员
  *
- * 说明：为降低部署门槛，Worker 会在第一次请求时自动执行建表与初始化。
- * 如果你更希望手动建表，可执行 `npm run db:init`（schema.sql），本文件会自动跳过。
+ * 说明：为降低部署门槛，Worker 会在第一次请求（任意 /api/*）时自动执行建表与初始化。
+ * 如果你更希望手动建表，可执行 `npm run db:init`（schema.sql）。
+ * ⚠️ 注意：手动建表只创建表结构（schema.sql 是纯 DDL，不含任何数据行），
+ *    默认管理员仍然由本文件在首次 /api/* 请求时插入，**不会**被跳过。
  *
  * ⚠️ 请保持与根目录 schema.sql 的表结构一致。
  */
@@ -151,19 +153,28 @@ export async function ensureBootstrap(db, env) {
   }
 
   if (version !== SCHEMA_VERSION) {
+    // 收集所有 DDL 失败再统一抛出：既保证把每条 DDL 都跑一遍，
+    // 又不会静默吞掉建表失败（否则会出现“表建了一半、users 为空”这种极难排查的现象）。
+    const ddlErrors = [];
     for (const sql of DDL) {
       try {
         await db.prepare(sql).run();
       } catch (e) {
-        if (!/already exists/i.test(String(e?.message))) {
-          console.error('[bootstrap] DDL 失败:', sql.slice(0, 60), e?.message);
-        }
+        if (/already exists/i.test(String(e?.message))) continue;
+        ddlErrors.push(`${sql.trim().slice(0, 50)}… → ${e?.message}`);
+        console.error('[bootstrap] DDL 失败:', sql.slice(0, 60), e?.message);
       }
+    }
+    if (ddlErrors.length) {
+      throw new Error(`建表失败（${ddlErrors.length} 项）：${ddlErrors.join(' | ')}`);
     }
     await setSetting(db, 'schema_version', SCHEMA_VERSION);
   }
 
   // 2. 默认管理员
+  // ⚠️ hashPassword 的耗时由 PBKDF2_ITERATIONS 决定。若迭代次数过高（如 120000 ≈ 19ms CPU），
+  //    会在 Workers 免费版（每请求 10ms CPU）上触发 Error 1102，导致下一行 INSERT 永远执行不到，
+  //    表现为“表都在但 users 表为空”。调低 PBKDF2_ITERATIONS 即可解决。
   const userCount = await one(db, 'SELECT COUNT(*) AS c FROM users');
   if (!userCount || Number(userCount.c) === 0) {
     const username = 'admin';
