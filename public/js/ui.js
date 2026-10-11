@@ -244,6 +244,7 @@ export function confirmDialog({
   danger = true,
 } = {}) {
   return new Promise((resolve) => {
+    let confirmed = false;
     const modal = openModal({
       title,
       size: 'narrow',
@@ -252,10 +253,16 @@ export function confirmDialog({
         <button class="btn btn-secondary" data-act="cancel">${escapeHtml(cancelText)}</button>
         <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-act="ok">${escapeHtml(confirmText)}</button>`,
       onOpen(m) {
-        m.el.querySelector('[data-act="cancel"]').addEventListener('click', () => { m.close(); resolve(false); });
-        m.el.querySelector('[data-act="ok"]').addEventListener('click', () => { m.close(); resolve(true); });
+        m.el.querySelector('[data-act="cancel"]').addEventListener('click', () => m.close());
+        m.el.querySelector('[data-act="ok"]').addEventListener('click', () => {
+          confirmed = true;
+          m.close();
+        });
       },
-      onClose: () => resolve(false),
+      // 统一在关闭时结算：m.close() 会同步触发 onClose，
+      // 若在按钮回调里先 close 再 resolve(true)，Promise 已被 onClose 的
+      // resolve(false) 抢先结算，导致确认永远被当作取消。
+      onClose: () => resolve(confirmed),
     });
   });
 }
