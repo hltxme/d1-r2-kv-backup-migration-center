@@ -155,7 +155,6 @@ function renderTopbar() {
     e.stopPropagation();
     menu.classList.toggle('hidden');
   };
-  document.addEventListener('click', () => menu.classList.add('hidden'));
   menu.querySelectorAll('[data-act]').forEach((el) => {
     el.onclick = () => {
       menu.classList.add('hidden');
@@ -190,18 +189,19 @@ async function renderRoute(route, force = false) {
   if (!ROUTES[route]) route = 'dashboard';
   state.route = route;
 
-  renderSidebar();
-  renderTopbar();
-  renderBrand();
-
   const content = $('#content');
-  content.innerHTML = `
-    <div class="empty" style="padding:110px 20px">
-      <div class="spinner"></div>
-      <div class="empty-title">${escapeHtml(t('common.loading'))}</div>
-    </div>`;
 
   try {
+    renderSidebar();
+    renderTopbar();
+    renderBrand();
+
+    content.innerHTML = `
+      <div class="empty" style="padding:110px 20px">
+        <div class="spinner"></div>
+        <div class="empty-title">${escapeHtml(t('common.loading'))}</div>
+      </div>`;
+
     await ROUTES[route].render({
       container: content,
       state,
@@ -226,7 +226,7 @@ async function renderRoute(route, force = false) {
 
 function handleHash() {
   const route = (location.hash || '#/dashboard').replace(/^#\/?/, '').split('?')[0] || 'dashboard';
-  renderRoute(route);
+  renderRoute(route).catch((e) => console.error('[route]', e));
 }
 
 // ===========================================================================
@@ -301,6 +301,9 @@ async function boot() {
     renderSidebar();
 
     $('#collapseBtn').onclick = () => $('#shell').classList.toggle('collapsed');
+
+    // 点击空白处关闭用户下拉（全局只注册一次，避免监听器累积）
+    document.addEventListener('click', () => $('#userDropMenu')?.classList.add('hidden'));
 
     window.addEventListener('hashchange', handleHash);
     handleHash();
