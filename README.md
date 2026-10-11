@@ -26,6 +26,7 @@
 - [本地开发](#-本地开发)
 - [配置说明](#-配置说明)
 - [Cloudflare API 权限](#-cloudflare-api-权限)
+- [添加 CF 账号与凭据获取指南](#-添加-cf-账号与凭据获取指南)
 - [主题与多语言扩展](#-主题与多语言扩展)
 - [目录结构](#-目录结构)
 - [API 一览](#-api-一览)
@@ -450,6 +451,119 @@ Cloudflare 的 **R2 对象读写只能走 S3 兼容 API**，需要单独创建 R
 4. 在本项目「CF 账号管理 → 编辑」中填入即可
 
 > 只做 D1 / KV 操作、不碰 R2 对象时，可以不填 R2 Access Key。
+
+---
+
+## ➕ 添加 CF 账号与凭据获取指南
+
+登录后台 → 左侧 **☁️ CF 账号管理** → **添加 CF 号**，需要填这些东西：
+
+| 表单字段 | 必填？ | 去哪获取 | 一句话说明 |
+| --- | --- | --- | --- |
+| 账号名称 | ✅ | 自己起 | 如 `生产账号` / `测试账号`，仅用于列表识别 |
+| **Account ID** | ✅ | Cloudflare 首页右侧边栏 | 32 位十六进制串 |
+| **API Token** | ✅ | My Profile → API Tokens | 需 `Account: Read`，建议同时给 D1/R2/KV `Edit` |
+| **R2 Access Key ID** | 仅 R2 对象操作 | R2 → 管理 R2 API 令牌 | 迁移/备份 R2 **对象**必需 |
+| **R2 Secret Access Key** | 仅 R2 对象操作 | 同上，创建后只显示一次 | 丢了只能重建令牌 |
+| **R2 Endpoint** | ❌ 可选 | **留空即可** | 留空会自动拼 `https://<Account ID>.r2.cloudflarestorage.com` |
+| 标识色 / 套餐 | ❌ | 自己选 | 仅用于区分列表颜色 |
+
+> ✅ 填完先点 **「测试连接」**，显示 `Token 有效，连接正常` 后再点 **「同步资源」**，
+> 你账号下的 D1 / R2 / KV 才会出现在左侧列表。
+
+### 1️⃣ Account ID（账号 ID）
+
+1. 登录 [dash.cloudflare.com](https://dash.cloudflare.com/)
+2. 进入**任意一个域名的概览页**，或直接停在 Account Home
+3. **右侧边栏**找到 **Account ID**，点一下即可复制
+4. 格式：32 位十六进制串，形如 `0123456789abcdef0123456789abcdef`
+
+> 💡 也可以在 **My Profile → API Tokens** 页面创建令牌时，从 **Account Resources**
+> 的下拉里看到你的账号 ID。
+
+### 2️⃣ API Token（Bearer 令牌）
+
+1. 点右上角**头像** → **My Profile**（我的个人资料）
+2. 左侧选 **API Tokens**（API 令牌）→ 点 **Create Token**（创建令牌）
+3. 选 **Create Custom Token**（创建自定义令牌）——别选模板，权限对不上
+4. 在 **Permissions**（权限）里逐条 **+ Add More**（继续添加）：
+
+   | 权限下拉（一级 → 二级） | 级别 | 用途 |
+   | --- | --- | --- |
+   | `Account` → `Account Settings` | **Read** | ✅ 必需：连通性测试 / 读账号信息 |
+   | `Account` → `D1` | **Edit** | D1 列表 / 查询 / 备份导出 / 迁移 |
+   | `Account` → `Workers R2 Storage` | **Edit** | R2 桶列表 / 建桶 |
+   | `Account` → `Workers KV Storage` | **Edit** | KV 命名空间与键值读写 |
+
+5. **Account Resources**（账号资源）→ `Include` → **Specific account** → 勾你的账号
+   > ⚠️ 别选 `All accounts`，权限最小化更安全
+6. **Client IP Address Filtering**：留空
+7. **TTL**（有效期）：按需选；想长期用选 `No expiration`（永不过期）
+8. 点 **Continue to summary**（继续查看摘要）→ **Create Token**（创建令牌）
+9. ⚠️ **令牌只在创建后的页面显示一次**，立刻复制，关掉就再也看不到了
+
+**粘贴说明**：直接把整串令牌粘进表单的 **API Token** 即可。
+表单占位符写的 `Bearer token…` 指的就是这个令牌，**不需要自己加 `Bearer` 前缀**。
+
+### 3️⃣ R2 Access Key ID / R2 Secret Access Key
+
+> 📌 **什么时候需要**：只做 D1 / KV 操作时可以**两个都留空**；
+> 要对 R2 **对象**做迁移 / 备份 / 清单导出，则**必须填**。
+>
+> 原因：Cloudflare 的 R2 **对象读写只能走 S3 兼容 API**，上面那个 API Token
+> 只能管理桶（建桶/删桶/列桶），**摸不到对象内容**。
+
+1. Cloudflare 控制台 → 左侧 **R2**（对象存储）
+2. 右上角 **管理 R2 API 令牌**（Manage R2 API Tokens）
+3. 点 **创建 API 令牌**（Create API token）
+4. **权限**（Permissions）选 **对象读 & 写**（Object Read & Write）
+   - 只做备份不做恢复 → 选 `Object Read` 也行，权限更小
+5. **指定范围**（Specify buckets）：
+   - 想省事 → 选 `Apply to entire account`（整个账号）
+   - 想收紧 → 只勾需要的桶
+6. 点 **创建 API 令牌**（Create API token）
+7. 页面会一次性显示两串：
+   - `Access Key ID` → 粘到表单的 **R2 Access Key ID**
+   - `Secret Access Key` → 粘到表单的 **R2 Secret Access Key**
+8. ⚠️ **Secret Access Key 只显示这一次**，刷新/关闭页面后就看不到了，只能删了重建令牌
+
+### 4️⃣ R2 Endpoint（可选）
+
+**留空就行，不用填。**
+
+代码里会自动拼（见 `src/cf/s3.js`）：
+
+```js
+const base = endpoint || `https://${accountId}.r2.cloudflarestorage.com`;
+```
+
+只有以下场景才需要手动填：
+
+| 场景 | 填什么 |
+| --- | --- |
+| 默认（绝大多数情况） | **留空** |
+| 用自定义域名绑定了 R2 桶 | `https://<你的自定义域名>` |
+| 走 S3 兼容的第三方 / 代理 | 对方给的 endpoint URL |
+
+> ⚠️ 端点只写到**域名一级**，**不要带桶名**（桶名由项目在「同步资源」后单独管理）。
+> 也不用手写 `https://<Account ID>.r2.cloudflarestorage.com`——那就是留空时的默认值。
+
+### 5️⃣ 填完之后的验证顺序
+
+1. **「测试连接」** → 显示 `Token 有效，连接正常`
+   - 失败 → 99% 是 API Token 权限不够或 Account ID 填错
+2. **「同步资源」** → 你账号下的 D1 / R2 / KV 才会进列表
+3. **⚠️ 同步出来的只是「资源清单」（名字/大小/数量），不含实际数据**
+   ——备份导出、跨账号迁移需要在对应资源上单独触发
+
+### 🔒 安全提示
+
+- CF API Token 与 R2 Secret 会用 **AES-GCM 加密后存进 D1**（密钥来自 `APP_SECRET`）
+- 但仍建议：
+  - 权限**按需最小化**，不要给 `All accounts`
+  - 定期**轮换令牌**（重建后到「编辑 CF 账号」里更新）
+  - 生产环境务必 `wrangler secret put APP_SECRET`，别用自动生成的弱密钥
+  - 后台登录密码改掉默认值（`admin` / `123456` 是公开仓库里的明文）
 
 ---
 
