@@ -158,14 +158,25 @@ export class CloudflareAPI {
     return res.result?.[0] ?? { results: [], meta: {}, success: true };
   }
 
-  /** 分页遍历某张表的全部数据 */
+  /** 分页遍历某张表的全部数据（按 rowid 稳定排序，避免 LIMIT/OFFSET 无序导致跨页重复/漏行） */
   async d1ScanAll(databaseId, table, { pageSize = 500, maxRows = 200000 } = {}) {
     const rows = [];
     let offset = 0;
     const safeTable = String(table).replace(/[^A-Za-z0-9_]/g, '');
+    let orderBy = ' ORDER BY rowid';
     while (rows.length < maxRows) {
-      const page = await this.d1Query(databaseId, `SELECT * FROM "${safeTable}" LIMIT ? OFFSET ?`, [pageSize, offset]);
-      const list = page.results || [];
+      let list;
+      try {
+        const page = await this.d1Query(databaseId, `SELECT * FROM "${safeTable}"${orderBy} LIMIT ? OFFSET ?`, [pageSize, offset]);
+        list = page.results || [];
+      } catch (e) {
+        // WITHOUT ROWID 等表没有 rowid，退化为无序分页
+        if (orderBy && /no such column|ORDER BY/i.test(String(e?.message || e))) {
+          orderBy = '';
+          continue;
+        }
+        throw e;
+      }
       rows.push(...list);
       if (list.length < pageSize) break;
       offset += pageSize;

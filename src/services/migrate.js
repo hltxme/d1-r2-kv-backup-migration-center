@@ -78,6 +78,8 @@ export async function restoreD1(api, databaseId, dump, { runner = null, dropExis
 
   for (const table of dump.tables || []) {
     const safeName = String(table.name).replace(/[^A-Za-z0-9_]/g, '');
+    // 尽量关闭外键约束，避免 OR REPLACE 的删插顺序触碰外键校验（不支持的后端忽略）
+    await api.d1Query(databaseId, 'PRAGMA foreign_keys = OFF').catch(() => {});
     if (dropExisting) {
       await api.d1Query(databaseId, `DROP TABLE IF EXISTS "${safeName}"`).catch(() => {});
     }
@@ -98,7 +100,9 @@ export async function restoreD1(api, databaseId, dump, { runner = null, dropExis
     if (!columns.length) continue;
     const colSql = columns.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',');
     const placeholders = columns.map(() => '?').join(',');
-    const insertSql = `INSERT INTO "${safeName}" (${colSql}) VALUES (${placeholders})`;
+    // INSERT OR REPLACE：目标库已有同主键数据时覆盖而非报错，
+    // 使迁移/恢复可重复执行（部分失败后重跑不撞 UNIQUE 约束）
+    const insertSql = `INSERT OR REPLACE INTO "${safeName}" (${colSql}) VALUES (${placeholders})`;
 
     const rows = table.rows || [];
     for (let i = 0; i < rows.length; i += INSERT_BATCH) {
@@ -114,7 +118,7 @@ export async function restoreD1(api, databaseId, dump, { runner = null, dropExis
       try {
         await api.d1Query(
           databaseId,
-          `INSERT INTO "${safeName}" (${colSql}) VALUES ${valuesSql}`,
+          `INSERT OR REPLACE INTO "${safeName}" (${colSql}) VALUES ${valuesSql}`,
           params,
         );
       } catch (e) {
