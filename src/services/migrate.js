@@ -11,7 +11,114 @@
 import { taskLog, updateTask, finishTask } from './tasks.js';
 import { R2S3 } from '../cf/s3.js';
 
-const INSERT_BATCH = 20;
+/**
+ * 把行数据转成 SQL 字面量（避免绑定参数，单条语句可写入数百行）
+ * - number / bigint / boolean → 原生字面量
+ * - 字节数组 → X'..' blob 字面量
+ * - 其余 → 单引号字符串（'' 转义）
+ */
+function sqlLiteral(v) {
+  if (v === null || v === undefined) return 'NULL';
+  if (typeof v === 'number') return Number.isFinite(v) ? String(v) : 'NULL';
+  if (typeof v === 'bigint') return String(v);
+  if (typeof v === 'boolean') return v ? '1' : '0';
+  if (Array.isArray(v)) {
+    const hex = v.map((b) => Number(b & 0xff).toString(16).padStart(2, '0')).join('');
+    return hex ? `X'${hex}'` : "X''";
+  }
+  return `'${String(v).replace(/'/g, "''")}'`;
+}
+
+// 单条 SQL 语句上限 100KB（D1 限制），按字符数保守预估（多字节字符最多 3 字节/字符）
+const MAX_LITERAL_CHARS = 30000;
+// 超长行字面量回退为单行参数化插入（参数化语句体积极小，可插入 2MB 级行）
+const HUGE_ROW_CHARS = 90000;
+
+/** 把 Workers 资源限额错误翻译成可操作的提示 */
+function friendlyLimitError(e) {
+  const msg = String(e?.message || e);
+  if (/Too many subrequests|CPU time limit|exceeded CPU|Error 1102/i.test(msg)) {
+    return new Error(
+      '本次迁移数据量超出 Workers 单次请求的资源限额（免费版每次请求最多 50 次外部调用 / 10ms CPU，'
+      + '付费版 1000 次调用）。已写入目标库的数据不会丢失且重跑不会产生重复，但大库建议：'
+      + '1) 升级 Workers Paid 后一次跑完；或 2) 在控制台拆成多次迁移（每次迁部分表）。'
+      + `原始错误：${msg}`,
+    );
+  }
+  return e;
+}
+
+/** 把 dump 写入目标 D1 */
+export async function restoreD1(api, databaseId, dump, { runner = null, dropExisting = false } = {}) {
+  let created = 0;
+  let inserted = 0;
+  let writeCalls = 0;
+
+  try {
+  for (const table of dump.tables || []) {
+    const safeName = String(table.name).replace(/[^A-Za-z0-9_]/g, '');
+    // 尽量关闭外键约束，避免 OR REPLACE 的删插顺序触碰外键校验（不支持的后端忽略）
+    await api.d1Query(databaseId, 'PRAGMA foreign_keys = OFF').catch(() => {});
+    if (dropExisting) {
+      await api.d1Query(databaseId, `DROP TABLE IF EXISTS "${safeName}"`).catch(() => {});
+    }
+    if (table.sql) {
+      try {
+        await api.d1Query(databaseId, table.sql);
+        created += 1;
+      } catch (e) {
+        if (!/already exists/i.test(String(e.message))) {
+          throw new Error(`建表 ${table.name} 失败：${e.message}`);
+        }
+      }
+    }
+
+    const columns = table.columns?.length
+      ? table.columns
+      : (table.rows?.[0] ? Object.keys(table.rows[0]) : []);
+    if (!columns.length) continue;
+    const colSql = columns.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',');
+    const rows = table.rows || [];
+
+    // 主路径：字面量多行 INSERT OR REPLACE（不受 100 绑定参数限制，请求数降到行数的 1/几百）
+    let stmt = `INSERT OR REPLACE INTO "${safeName}" (${colSql}) VALUES `;
+    let stmtRows = [];
+    const flush = async () => {
+      if (!stmtRows.length) return;
+      await api.d1Query(databaseId, stmt + stmtRows.join(','));
+      writeCalls += 1;
+      inserted += stmtRows.length;
+      if (runner) { runner.done += stmtRows.length; await runner.flush(); }
+      stmtRows = [];
+      stmt = `INSERT OR REPLACE INTO "${safeName}" (${colSql}) VALUES `;
+    };
+
+    for (const row of rows) {
+      const tuple = `(${columns.map((c) => sqlLiteral(row[c])).join(',')})`;
+      if (tuple.length > HUGE_ROW_CHARS) {
+        // 超长行：参数化单行插入（语句体积极小，可容纳 2MB 行）
+        await flush();
+        await api.d1Query(
+          databaseId,
+          `INSERT OR REPLACE INTO "${safeName}" (${colSql}) VALUES (${columns.map(() => '?').join(',')})`,
+          columns.map((c) => (row[c] === undefined ? null : row[c])),
+        );
+        writeCalls += 1;
+        inserted += 1;
+        if (runner) { runner.done += 1; await runner.flush(); }
+        continue;
+      }
+      if (stmtRows.length && stmt.length + tuple.length > MAX_LITERAL_CHARS) await flush();
+      stmtRows.push(tuple);
+    }
+    await flush();
+    if (runner) await runner.log(`写入表 ${table.name}：${rows.length} 行（${writeCalls} 次写入请求）`);
+  }
+  } catch (e) {
+    throw friendlyLimitError(e);
+  }
+  return { created, inserted, writeCalls };
+}
 
 class Runner {
   constructor(db, taskId) {
@@ -60,7 +167,7 @@ export async function dumpD1(api, databaseId, { maxRowsPerTable = 50000, runner 
     const safeName = String(t.name).replace(/[^A-Za-z0-9_]/g, '');
     const info = await api.d1Query(databaseId, `PRAGMA table_info("${safeName}")`);
     const columns = (info.results || []).map((c) => c.name);
-    const rows = await api.d1ScanAll(databaseId, safeName, { pageSize: 500, maxRows: maxRowsPerTable });
+    const rows = await api.d1ScanAll(databaseId, safeName, { pageSize: 1000, maxRows: maxRowsPerTable });
     tables.push({ name: t.name, sql: t.sql, columns, rows });
     if (runner) {
       runner.total += rows.length;
@@ -71,80 +178,9 @@ export async function dumpD1(api, databaseId, { maxRowsPerTable = 50000, runner 
   return { version: 1, exportedAt: new Date().toISOString(), tables };
 }
 
-/** 把 dump 写入目标 D1 */
-export async function restoreD1(api, databaseId, dump, { runner = null, dropExisting = false } = {}) {
-  let created = 0;
-  let inserted = 0;
-
-  for (const table of dump.tables || []) {
-    const safeName = String(table.name).replace(/[^A-Za-z0-9_]/g, '');
-    // 尽量关闭外键约束，避免 OR REPLACE 的删插顺序触碰外键校验（不支持的后端忽略）
-    await api.d1Query(databaseId, 'PRAGMA foreign_keys = OFF').catch(() => {});
-    if (dropExisting) {
-      await api.d1Query(databaseId, `DROP TABLE IF EXISTS "${safeName}"`).catch(() => {});
-    }
-    if (table.sql) {
-      try {
-        await api.d1Query(databaseId, table.sql);
-        created += 1;
-      } catch (e) {
-        if (!/already exists/i.test(String(e.message))) {
-          throw new Error(`建表 ${table.name} 失败：${e.message}`);
-        }
-      }
-    }
-
-    const columns = table.columns?.length
-      ? table.columns
-      : (table.rows?.[0] ? Object.keys(table.rows[0]) : []);
-    if (!columns.length) continue;
-    const colSql = columns.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',');
-    const placeholders = columns.map(() => '?').join(',');
-    // INSERT OR REPLACE：目标库已有同主键数据时覆盖而非报错，
-    // 使迁移/恢复可重复执行（部分失败后重跑不撞 UNIQUE 约束）
-    const insertSql = `INSERT OR REPLACE INTO "${safeName}" (${colSql}) VALUES (${placeholders})`;
-
-    const rows = table.rows || [];
-    for (let i = 0; i < rows.length; i += INSERT_BATCH) {
-      const chunk = rows.slice(i, i + INSERT_BATCH);
-      const params = [];
-      for (const row of chunk) {
-        for (const col of columns) {
-          const v = row[col];
-          params.push(v === undefined ? null : v);
-        }
-      }
-      const valuesSql = chunk.map(() => `(${placeholders})`).join(',');
-      try {
-        await api.d1Query(
-          databaseId,
-          `INSERT OR REPLACE INTO "${safeName}" (${colSql}) VALUES ${valuesSql}`,
-          params,
-        );
-      } catch (e) {
-        // 参数数量受限时退化为逐行插入
-        for (const row of chunk) {
-          await api.d1Query(
-            databaseId,
-            insertSql,
-            columns.map((c) => (row[c] === undefined ? null : row[c])),
-          );
-          inserted += 1;
-        }
-        if (runner) { runner.done += chunk.length; await runner.flush(); }
-        continue;
-      }
-      inserted += chunk.length;
-      if (runner) { runner.done += chunk.length; await runner.flush(); }
-    }
-    if (runner) await runner.log(`写入表 ${table.name}：${rows.length} 行`);
-  }
-  return { created, inserted };
-}
-
 /** 跨账号迁移 D1 */
 export async function migrateD1({ sourceApi, sourceDbId, targetApi, targetDbId, maxRowsPerTable = 50000, runner = null }) {
-  const dump = await dumpD1(sourceApi, sourceDbId, { maxRowsPerTable, runner });
+  const dump = await dumpD1(sourceApi, sourceDbId, { maxRowsPerTable, runner }).catch((e) => { throw friendlyLimitError(e); });
   if (runner) {
     runner.total = dump.tables.reduce((s, t) => s + t.rows.length, 0);
     await runner.log(`源库导出完成，共 ${dump.tables.length} 张表 / ${runner.total} 行，开始写入目标库`);
