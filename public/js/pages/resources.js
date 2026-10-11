@@ -356,7 +356,10 @@ export function createResourcePage(type) {
               ${icon('info', 16)}
               <div>${escapeHtml(t('common.processing'))}</div>
             </div>
-            <div id="migProgress" class="text-sm text-muted mt-2"></div>
+            <div id="migProgressWrap" class="mt-3" style="display:none">
+              <div class="progress"><div class="bar" id="migBar" style="width:0%"></div></div>
+              <div id="migProgress" class="text-xs text-muted mt-2"></div>
+            </div>
           </form>`,
         footer: `
           <button class="btn btn-secondary" data-close>${escapeHtml(t('common.cancel'))}</button>
@@ -371,22 +374,30 @@ export function createResourcePage(type) {
             btn.classList.add('btn-loading');
             btn.disabled = true;
             try {
-              const prog = m.el.querySelector('#migProgress');
-              const showProgress = (r) => {
-                if (prog && r && typeof r.rowsDone === 'number') {
-                  prog.textContent = r.rowsTotal
-                    ? `已迁移 ${r.rowsDone} / ${r.rowsTotal} 行（分批续传中…）`
-                    : `已迁移 ${r.rowsDone} 行（分批续传中…）`;
+              const progWrap = m.el.querySelector('#migProgressWrap');
+              const progBar = m.el.querySelector('#migBar');
+              const progText = m.el.querySelector('#migProgress');
+              const fmt = (n) => Number(n || 0).toLocaleString();
+              const showProgress = (r, done = false) => {
+                if (!progWrap || !r || typeof r.rowsDone !== 'number') return;
+                const pct = r.rowsTotal ? Math.min(100, Math.round((r.rowsDone / r.rowsTotal) * 100)) : 0;
+                progWrap.style.display = '';
+                if (progBar) progBar.style.width = `${done ? 100 : pct}%`;
+                if (done) progWrap.querySelector('.progress')?.classList.add('success');
+                if (progText) {
+                  progText.textContent = r.rowsTotal
+                    ? `${done ? '迁移完成' : '迁移中'}：${fmt(r.rowsDone)} / ${fmt(r.rowsTotal)} 行 · ${done ? 100 : pct}%`
+                    : `${done ? '迁移完成' : '迁移中'}：${fmt(r.rowsDone)} 行`;
                 }
               };
               let res = await post(`${cfg.apiBase}/${id}/migrate`, body);
-              showProgress(res);
+              showProgress(res, res.done);
               if (type === 'd1') {
                 // 分批续传：循环调用步进接口直至完成（中断后重跑可断点续传）
                 let guard = 0;
                 while (!res.done && guard < 10000) {
                   res = await post('/api/d1/migrate-step', { taskId: res.taskId });
-                  showProgress(res);
+                  showProgress(res, res.done);
                   guard += 1;
                 }
               }
