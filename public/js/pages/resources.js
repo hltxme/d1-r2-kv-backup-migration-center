@@ -356,6 +356,7 @@ export function createResourcePage(type) {
               ${icon('info', 16)}
               <div>${escapeHtml(t('common.processing'))}</div>
             </div>
+            <div id="migProgress" class="text-sm text-muted mt-2"></div>
           </form>`,
         footer: `
           <button class="btn btn-secondary" data-close>${escapeHtml(t('common.cancel'))}</button>
@@ -370,7 +371,25 @@ export function createResourcePage(type) {
             btn.classList.add('btn-loading');
             btn.disabled = true;
             try {
-              const res = await post(`${cfg.apiBase}/${id}/migrate`, body);
+              const prog = m.el.querySelector('#migProgress');
+              const showProgress = (r) => {
+                if (prog && r && typeof r.rowsDone === 'number') {
+                  prog.textContent = r.rowsTotal
+                    ? `已迁移 ${r.rowsDone} / ${r.rowsTotal} 行（分批续传中…）`
+                    : `已迁移 ${r.rowsDone} 行（分批续传中…）`;
+                }
+              };
+              let res = await post(`${cfg.apiBase}/${id}/migrate`, body);
+              showProgress(res);
+              if (type === 'd1') {
+                // 分批续传：循环调用步进接口直至完成（中断后重跑可断点续传）
+                let guard = 0;
+                while (!res.done && guard < 10000) {
+                  res = await post('/api/d1/migrate-step', { taskId: res.taskId });
+                  showProgress(res);
+                  guard += 1;
+                }
+              }
               toastSuccess(`${t('res.migrateDone')}: ${res.result?.rows ?? res.result?.keys ?? res.result?.copied ?? ''}`);
               m.close();
               load();

@@ -48,6 +48,49 @@ function friendlyLimitError(e) {
   return e;
 }
 
+/**
+ * 字面量多行写入（不受 100 绑定参数限制，单条语句可写入数百行）
+ * @returns {Promise<{inserted: number, writeCalls: number}>}
+ */
+async function writeRowsLiteral(api, databaseId, safeName, columns, rows, onFlush = null) {
+  const colSql = columns.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',');
+  let inserted = 0;
+  let writeCalls = 0;
+  let stmt = `INSERT OR REPLACE INTO "${safeName}" (${colSql}) VALUES `;
+  let stmtRows = [];
+  const flush = async () => {
+    if (!stmtRows.length) return;
+    const n = stmtRows.length;
+    await api.d1Query(databaseId, stmt + stmtRows.join(','));
+    writeCalls += 1;
+    inserted += n;
+    stmtRows = [];
+    stmt = `INSERT OR REPLACE INTO "${safeName}" (${colSql}) VALUES `;
+    if (onFlush) await onFlush(n);
+  };
+
+  for (const row of rows) {
+    const tuple = `(${columns.map((c) => sqlLiteral(row[c])).join(',')})`;
+    if (tuple.length > HUGE_ROW_CHARS) {
+      // 超长行：参数化单行插入（语句体积极小，可插入 2MB 行）
+      await flush();
+      await api.d1Query(
+        databaseId,
+        `INSERT OR REPLACE INTO "${safeName}" (${colSql}) VALUES (${columns.map(() => '?').join(',')})`,
+        columns.map((c) => (row[c] === undefined ? null : row[c])),
+      );
+      writeCalls += 1;
+      inserted += 1;
+      if (onFlush) await onFlush(1);
+      continue;
+    }
+    if (stmtRows.length && stmt.length + tuple.length > MAX_LITERAL_CHARS) await flush();
+    stmtRows.push(tuple);
+  }
+  await flush();
+  return { inserted, writeCalls };
+}
+
 /** 把 dump 写入目标 D1 */
 export async function restoreD1(api, databaseId, dump, { runner = null, dropExisting = false } = {}) {
   let created = 0;
@@ -80,39 +123,12 @@ export async function restoreD1(api, databaseId, dump, { runner = null, dropExis
     const colSql = columns.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',');
     const rows = table.rows || [];
 
-    // 主路径：字面量多行 INSERT OR REPLACE（不受 100 绑定参数限制，请求数降到行数的 1/几百）
-    let stmt = `INSERT OR REPLACE INTO "${safeName}" (${colSql}) VALUES `;
-    let stmtRows = [];
-    const flush = async () => {
-      if (!stmtRows.length) return;
-      await api.d1Query(databaseId, stmt + stmtRows.join(','));
-      writeCalls += 1;
-      inserted += stmtRows.length;
-      if (runner) { runner.done += stmtRows.length; await runner.flush(); }
-      stmtRows = [];
-      stmt = `INSERT OR REPLACE INTO "${safeName}" (${colSql}) VALUES `;
-    };
-
-    for (const row of rows) {
-      const tuple = `(${columns.map((c) => sqlLiteral(row[c])).join(',')})`;
-      if (tuple.length > HUGE_ROW_CHARS) {
-        // 超长行：参数化单行插入（语句体积极小，可容纳 2MB 行）
-        await flush();
-        await api.d1Query(
-          databaseId,
-          `INSERT OR REPLACE INTO "${safeName}" (${colSql}) VALUES (${columns.map(() => '?').join(',')})`,
-          columns.map((c) => (row[c] === undefined ? null : row[c])),
-        );
-        writeCalls += 1;
-        inserted += 1;
-        if (runner) { runner.done += 1; await runner.flush(); }
-        continue;
-      }
-      if (stmtRows.length && stmt.length + tuple.length > MAX_LITERAL_CHARS) await flush();
-      stmtRows.push(tuple);
-    }
-    await flush();
-    if (runner) await runner.log(`写入表 ${table.name}：${rows.length} 行（${writeCalls} 次写入请求）`);
+    const res = await writeRowsLiteral(api, databaseId, safeName, columns, rows, async (n) => {
+      if (runner) { runner.done += n; await runner.flush(); }
+    });
+    inserted += res.inserted;
+    writeCalls += res.writeCalls;
+    if (runner) await runner.log(`写入表 ${table.name}：${rows.length} 行（${res.writeCalls} 次写入请求）`);
   }
   } catch (e) {
     throw friendlyLimitError(e);
@@ -188,6 +204,132 @@ export async function migrateD1({ sourceApi, sourceDbId, targetApi, targetDbId, 
   }
   const result = await restoreD1(targetApi, targetDbId, dump, { runner });
   return { tables: dump.tables.length, rows: dump.tables.reduce((s, t) => s + t.rows.length, 0), ...result };
+}
+
+// ===========================================================================
+// D1 分批续传引擎（每次请求处理一小批，规避 Workers 单次请求资源限额）
+// ===========================================================================
+
+/** 初始化迁移状态：拉取表清单与列信息（不读数据） */
+export async function migrateD1Init({ sourceApi, sourceDbId }) {
+  const master = await sourceApi.d1Query(
+    sourceDbId,
+    `SELECT name, sql FROM sqlite_master
+      WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'
+      ORDER BY name`,
+  );
+  const tables = [];
+  for (const t of master.results || []) {
+    const safeName = String(t.name).replace(/[^A-Za-z0-9_]/g, '');
+    const info = await sourceApi.d1Query(sourceDbId, `PRAGMA table_info("${safeName}")`);
+    const columns = (info.results || []).map((c) => c.name);
+    let rowsTotal = 0;
+    try {
+      const cnt = await sourceApi.d1Query(sourceDbId, `SELECT COUNT(*) AS n FROM "${safeName}"`);
+      rowsTotal = Number(cnt.results?.[0]?.n || 0);
+    } catch { /* 忽略 */ }
+    tables.push({ name: t.name, sql: t.sql, columns, rowsTotal, created: false });
+  }
+  return {
+    version: 2,
+    tables,
+    tableIndex: 0,
+    cursor: 0,
+    cursorMode: 'rowid',      // rowid 游标；无 rowid 表退化为 offset 游标
+    rowsDone: 0,
+    rowsTotal: tables.reduce((s, t) => s + (t.rowsTotal || 0), 0),
+    writeCalls: 0,
+    startedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * 执行一步迁移：读一小批 → 写入目标库 → 推进游标
+ * @param maxCalls 本步最多消耗的 API 调用次数（含读写）
+ * @returns {{state: object, done: boolean, calls: number, rowsStep: number}}
+ */
+export async function migrateD1Step({
+  sourceApi, sourceDbId, targetApi, targetDbId, state,
+  chunkRows = 500, maxCalls = 12,
+}) {
+  let calls = 0;
+  let rowsStep = 0;
+  const tables = state.tables || [];
+
+  try {
+    while (state.tableIndex < tables.length) {
+      const table = tables[state.tableIndex];
+      const safeName = String(table.name).replace(/[^A-Za-z0-9_]/g, '');
+
+      if (!table.created) {
+        await targetApi.d1Query(targetDbId, 'PRAGMA foreign_keys = OFF').catch(() => {});
+        calls += 1;
+        if (table.sql) {
+          try {
+            await targetApi.d1Query(targetDbId, table.sql);
+            calls += 1;
+          } catch (e) {
+            calls += 1;
+            if (!/already exists/i.test(String(e.message))) throw e;
+          }
+        }
+        table.created = true;
+      }
+
+      let rows = [];
+      try {
+        const page = state.cursorMode === 'rowid'
+          ? await sourceApi.d1Query(
+            sourceDbId,
+            `SELECT rowid AS __rowid, * FROM "${safeName}" WHERE rowid > ? ORDER BY rowid LIMIT ?`,
+            [state.cursor, chunkRows],
+          )
+          : await sourceApi.d1Query(
+            sourceDbId,
+            `SELECT * FROM "${safeName}" LIMIT ? OFFSET ?`,
+            [chunkRows, state.cursor],
+          );
+        calls += 1;
+        rows = page.results || [];
+      } catch (e) {
+        // WITHOUT ROWID 等表没有 rowid，退化为 offset 游标
+        if (state.cursorMode === 'rowid' && /no such column|ORDER BY/i.test(String(e?.message || e))) {
+          state.cursorMode = 'offset';
+          state.cursor = 0;
+          continue;
+        }
+        throw e;
+      }
+
+      if (!rows.length) {
+        state.tableIndex += 1;
+        state.cursor = 0;
+        state.cursorMode = 'rowid';
+        continue;
+      }
+
+      const columns = table.columns?.length
+        ? table.columns
+        : Object.keys(rows[0]).filter((k) => k !== '__rowid');
+      const res = await writeRowsLiteral(targetApi, targetDbId, safeName, columns, rows);
+      calls += res.writeCalls;
+      state.writeCalls += res.writeCalls;
+      state.rowsDone += rows.length;
+      rowsStep += rows.length;
+
+      if (state.cursorMode === 'rowid') {
+        state.cursor = Number(rows[rows.length - 1].__rowid ?? (state.cursor + rows.length));
+      } else {
+        state.cursor += rows.length;
+      }
+
+      if (calls >= maxCalls) break;
+    }
+  } catch (e) {
+    throw friendlyLimitError(e);
+  }
+
+  return { state, done: state.tableIndex >= tables.length, calls, rowsStep };
 }
 
 // ===========================================================================

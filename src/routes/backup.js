@@ -5,14 +5,14 @@ import {
   ok, err, raw, readJson, getClientIp, requireString, toInt, requireIds,
   paginate,
 } from '../lib/http.js';
-import { one, all, run, inParams } from '../lib/db.js';
+import { one, all, run, inParams, getSetting, setSetting } from '../lib/db.js';
 import { requireUser, audit } from '../lib/auth.js';
 import { requireAccount, buildCfApi, buildS3 } from '../lib/repo.js';
 import {
   createTask, updateTask, finishTask, taskLog, listTasks, getTask, taskDto,
 } from '../services/tasks.js';
 import {
-  dumpD1, restoreD1, migrateD1, dumpKV, restoreKV, migrateKV, migrateR2, dumpToSql,
+  dumpD1, restoreD1, migrateD1, migrateD1Init, migrateD1Step, dumpKV, restoreKV, migrateKV, migrateR2, dumpToSql,
 } from '../services/migrate.js';
 
 const MAX_ROWS = 50000;
@@ -106,7 +106,56 @@ export function registerBackupRoutes(r) {
     }
   });
 
-  // ── D1 跨账号迁移 ───────────────────────────────────────────────────────
+  // ── D1 跨账号迁移（分批续传：每次请求处理一小批，规避 Workers 单次请求资源限额）──
+  // 断点续传状态保存在 settings 表（key: migrate_state:<taskId>），中断后重跑自动继续
+  async function findResumableState(db, sourceResourceId, targetAccountId) {
+    const rows = await all(db, "SELECT value FROM settings WHERE key LIKE 'migrate_state:%'");
+    for (const r of rows) {
+      try {
+        const st = JSON.parse(r.value);
+        if (st && st.sourceResourceId === sourceResourceId && st.targetAccountId === targetAccountId) return st;
+      } catch { /* 忽略脏数据 */ }
+    }
+    return null;
+  }
+
+  /** 执行一步迁移并持久化状态/进度 */
+  async function runD1MigrateStep(db, env, state, me, ip) {
+    const taskId = state.taskId;
+    const sourceAccount = await requireAccount(db, state.sourceAccountId);
+    const targetAccount = await requireAccount(db, state.targetAccountId);
+    const sourceApi = await buildCfApi(db, env, sourceAccount);
+    const targetApi = await buildCfApi(db, env, targetAccount);
+
+    try {
+      const out = await migrateD1Step({
+        sourceApi, sourceDbId: state.sourceDbId,
+        targetApi, targetDbId: state.targetDbId,
+        state,
+      });
+      await setSetting(db, `migrate_state:${taskId}`, JSON.stringify(state));
+      await updateTask(db, taskId, {
+        progress: state.rowsTotal ? Math.min(99, Math.round((state.rowsDone / state.rowsTotal) * 100)) : 0,
+        doneItems: state.rowsDone,
+        totalItems: state.rowsTotal,
+      });
+
+      if (out.done) {
+        await run(db, 'DELETE FROM settings WHERE key = ?', [`migrate_state:${taskId}`]);
+        await finishTask(db, taskId, 'success', `迁移完成：${state.tables.length} 表 / ${state.rowsDone} 行`);
+        await audit(db, me, 'd1.migrate', String(state.targetDbId || ''), JSON.stringify({ tables: state.tables.length, rows: state.rowsDone }), ip);
+        return {
+          taskId, done: true, rowsDone: state.rowsDone, rowsTotal: state.rowsTotal,
+          result: { tables: state.tables.length, rows: state.rowsDone },
+        };
+      }
+      return { taskId, done: false, rowsDone: state.rowsDone, rowsTotal: state.rowsTotal };
+    } catch (e) {
+      await taskLog(db, taskId, `迁移中断：${e.message}（重新执行迁移即可从断点继续）`);
+      throw e;
+    }
+  }
+
   r.post('/api/d1/:id/migrate', async ({ req, env, params }) => {
     const db = env.DB;
     const me = await requireUser(db, req);
@@ -120,54 +169,62 @@ export function registerBackupRoutes(r) {
       throw err.badRequest('同账号迁移时请指定目标数据库');
     }
 
-    const sourceApi = await buildCfApi(db, env, sourceAccount);
-    const targetApi = await buildCfApi(db, env, targetAccount);
+    // 断点续传：同源同目标已有未完成迁移则继续，不重复建任务/建库
+    let state = await findResumableState(db, srcRow.id, targetAccount.id);
+    let taskId;
+    if (state) {
+      taskId = state.taskId;
+      await taskLog(db, taskId, '继续迁移（断点续传）');
+    } else {
+      const sourceApi = await buildCfApi(db, env, sourceAccount);
+      const targetApi = await buildCfApi(db, env, targetAccount);
 
-    let targetDbId = String(body.targetDatabaseId || '').trim();
-    let targetName = String(body.targetDatabaseName || '').trim();
-    if (!targetDbId) {
-      if (!targetName) targetName = `${srcRow.database_name}-migrated`;
-      const created = await targetApi.createD1(targetName);
-      targetDbId = created.result?.uuid || created.result?.database_id || '';
-      if (!targetDbId) throw err.upstream('目标 D1 创建失败，未返回 database_id');
-    }
-
-    const taskId = await createTask(db, {
-      type: 'migrate', resourceType: 'd1',
-      title: `迁移 D1：${srcRow.database_name} → ${targetName || targetDbId}`,
-      sourceAccount: sourceAccount.id, sourceResource: targetDescriptor('d1', srcRow),
-      targetAccount: targetAccount.id, targetResource: `${targetName || ''} (${targetDbId})`,
-      createdBy: me.id,
-    });
-
-    const runner = new (class {
-      constructor() { this.done = 0; this.total = 0; this.bytesDone = 0; this.bytesTotal = 0; this.last = 0; }
-      async log(line) { await taskLog(db, taskId, line); }
-      async flush(force = false) {
-        const now = Date.now();
-        if (!force && now - this.last < 500) return;
-        this.last = now;
-        await updateTask(db, taskId, {
-          progress: this.total ? Math.min(99, Math.round((this.done / this.total) * 100)) : 0,
-          doneItems: this.done, totalItems: this.total,
-          bytesDone: this.bytesDone, bytesTotal: this.bytesTotal,
-        });
+      let targetDbId = String(body.targetDatabaseId || '').trim();
+      let targetName = String(body.targetDatabaseName || '').trim();
+      if (!targetDbId) {
+        if (!targetName) targetName = `${srcRow.database_name}-migrated`;
+        const created = await targetApi.createD1(targetName);
+        targetDbId = created.result?.uuid || created.result?.database_id || '';
+        if (!targetDbId) throw err.upstream('目标 D1 创建失败，未返回 database_id');
       }
-    })();
 
-    try {
-      const result = await migrateD1({
-        sourceApi, sourceDbId: srcRow.database_id,
-        targetApi, targetDbId,
-        maxRowsPerTable: MAX_ROWS, runner,
+      taskId = await createTask(db, {
+        type: 'migrate', resourceType: 'd1',
+        title: `迁移 D1：${srcRow.database_name} → ${targetName || targetDbId}`,
+        sourceAccount: sourceAccount.id, sourceResource: targetDescriptor('d1', srcRow),
+        targetAccount: targetAccount.id, targetResource: `${targetName || ''} (${targetDbId})`,
+        createdBy: me.id,
       });
-      await finishTask(db, taskId, 'success', `迁移完成：${result.tables} 表 / ${result.rows} 行`);
-      await audit(db, me, 'd1.migrate', `${srcRow.database_name} → ${targetName || targetDbId}`, JSON.stringify(result), getClientIp(req));
-      return ok({ task: taskDto(await getTask(db, taskId)), result }, 'D1 跨账号迁移完成');
-    } catch (e) {
-      await finishTask(db, taskId, 'failed', e.message);
-      throw e;
+
+      state = await migrateD1Init({ sourceApi, sourceDbId: srcRow.database_id });
+      state.taskId = taskId;
+      state.sourceResourceId = srcRow.id;
+      state.sourceAccountId = sourceAccount.id;
+      state.targetAccountId = targetAccount.id;
+      state.sourceDbId = srcRow.database_id;
+      state.targetDbId = targetDbId;
+      await setSetting(db, `migrate_state:${taskId}`, JSON.stringify(state));
+      await taskLog(db, taskId, `迁移开始：${state.tables.length} 张表 / 约 ${state.rowsTotal} 行，分批续传`);
     }
+
+    const out = await runD1MigrateStep(db, env, state, me, getClientIp(req));
+    return ok(out, out.done ? 'D1 跨账号迁移完成' : '迁移进行中');
+  });
+
+  // ── D1 迁移步进（前端循环调用驱动分批续传；也可用于断点恢复）──────
+  r.post('/api/d1/migrate-step', async ({ req, env }) => {
+    const db = env.DB;
+    const me = await requireUser(db, req);
+    const body = await readJson(req);
+    const taskId = toInt(body.taskId, 0);
+    const rawState = await getSetting(db, `migrate_state:${taskId}`);
+    if (!rawState) {
+      const task = taskId ? await getTask(db, taskId) : null;
+      return ok({ done: true, task: task ? taskDto(task) : null });
+    }
+    const state = JSON.parse(rawState);
+    const out = await runD1MigrateStep(db, env, state, me, getClientIp(req));
+    return ok(out, out.done ? 'D1 跨账号迁移完成' : '迁移进行中');
   });
 
   // ── D1 恢复（上传备份文件）─────────────────────────────────────────────
