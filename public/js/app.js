@@ -103,7 +103,8 @@ function renderTopbar() {
   const route = ROUTES[state.route] || ROUTES.dashboard;
   $('#pageTitle').textContent = t(route.titleKey);
   $('#pageDesc').textContent = t(route.descKey);
-  $('#loadingText').textContent = t('common.loading');
+  const loadingText = $('#loadingText');
+  if (loadingText) loadingText.textContent = t('common.loading');
 
   const actions = $('#topbarActions');
   actions.innerHTML = `
